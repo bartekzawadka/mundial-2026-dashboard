@@ -1,0 +1,75 @@
+<main class="app-shell">
+  <nav class="nav glass">
+    <div class="brand"><div class="orb"></div><span>Mundial 2026</span></div>
+    <div class="tabs" role="tablist" aria-label="Dashboard sections">
+      <button class="tab" [class.active]="activeView() === 'groups'" (click)="setView('groups')">Group dashboard</button>
+      <button class="tab" [class.active]="activeView() === 'knockout'" (click)="setView('knockout')">Elimination ladder</button>
+    </div>
+  </nav>
+
+  <section class="hero">
+    <div class="hero-card glass">
+      <p class="eyebrow">Canada · México · United States</p>
+      <h1>World Cup 2026 command center.</h1>
+      <p class="lead">A modern dark iOS-like SPA for the expanded Mundial: group standings, qualification signals, match cards, and a full knockout route from Round of 32 to the final.</p>
+      <div class="hero-actions">
+        <span class="pill"><span class="pulse"></span> Starts June 11, 2026</span>
+        <span class="pill">🏆 Final · July 19</span>
+        <span class="pill">📍 3 host countries</span>
+      </div>
+    </div>
+    <aside class="stats glass">
+      @for (stat of stats; track stat.label) {
+        <div class="stat"><b>{{ stat.value }}</b><span>{{ stat.label }}</span></div>
+      }
+    </aside>
+  </section>
+
+  @if (activeView() === 'groups') {
+    <section class="section">
+      <div class="toolbar">
+        <div><p class="eyebrow">Phase 01</p><h2>Group phase dashboard</h2></div>
+        <input class="search" placeholder="Search team or group…" [value]="query()" (input)="updateQuery($any($event.target).value)" />
+      </div>
+      <div class="groups-grid">
+        @for (group of filteredGroups(); track group.code; let gi = $index) {
+          <article class="group-card glass">
+            <header><h3>Group {{ group.code }}</h3><span>Top 2 + best 3rd</span></header>
+            <div class="teams">
+              @for (team of group.teams; track team.name; let ti = $index) {
+                <div class="team" [ngClass]="{ qualify: ti < 2, third: ti === 2 }">
+                  <span class="flag">{{ team.flag }}</span>
+                  <div><b>{{ team.name }}</b><small>{{ team.confederation }} · Seed {{ team.seed }}</small></div>
+                  <strong>{{ points(gi, ti) }} pts</strong>
+                </div>
+              }
+            </div>
+            <div class="matches">
+              <div><span>{{ group.teams[0].name }} vs {{ group.teams[1].name }}</span><em>MD1</em></div>
+              <div><span>{{ group.teams[2].name }} vs {{ group.teams[3].name }}</span><em>MD1</em></div>
+              <div><span>{{ group.teams[3].name }} vs {{ group.teams[0].name }}</span><em>MD3</em></div>
+            </div>
+          </article>
+        }
+      </div>
+      <p class="note glass">Demo points are placeholders. The structure is ready for a live data service: top two from every group advance automatically, plus the eight best third-place teams.</p>
+    </section>
+  } @else {
+    <section class="section">
+      <div class="toolbar"><div><p class="eyebrow">Phase 02</p><h2>Elimination phase ladder</h2></div><span class="pill">Round of 32 → Final</span></div>
+      <div class="bracket-shell glass">
+        <div class="bracket">
+          @for (round of rounds; track round.title) {
+            <div class="round" [class]="round.className">
+              <h3>{{ round.title }}</h3>
+              @for (slot of round.slots; track slot) {
+                <div class="slot" [class.champion]="round.className === 'final'"><b>{{ slot }}</b><span>{{ round.date }}</span></div>
+              }
+            </div>
+          }
+        </div>
+      </div>
+      <p class="note glass">Pairing labels are intentionally abstract until standings are final. The layout supports a connected bracket engine later.</p>
+    </section>
+  }
+</main>
