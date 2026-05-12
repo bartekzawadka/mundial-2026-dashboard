@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 env:
-  IMAGE_NAME: baz-mundial-2026
+  IMAGE_NAME: mundial-2026
   REGISTRY: ghcr.io
 
 jobs:
@@ -35,15 +35,25 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Generate image tag
+        id: tag
+        shell: bash
+        run: |
+          DATE_TAG=$(date -u +'%Y%m%d')
+          RUN_NUMBER=${GITHUB_RUN_NUMBER}
+          DAILY_SEQUENCE=$((RUN_NUMBER % 1000))
+          VERSION_TAG="${DATE_TAG}.${DAILY_SEQUENCE}"
+
+          echo "version_tag=${VERSION_TAG}" >> $GITHUB_OUTPUT
+          echo "Generated tag: ${VERSION_TAG}"
+
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=sha,prefix=sha-
+            type=raw,value=${{ steps.tag.outputs.version_tag }}
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build Docker image
