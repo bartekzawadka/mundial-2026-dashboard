@@ -90,6 +90,36 @@
         }
         .tab.active { color: #06111d; background: linear-gradient(135deg, var(--accent), #e0f2fe); box-shadow: 0 12px 26px rgba(125,211,252,.23); }
 
+        .hero-toggle {
+            border: 1px solid var(--line);
+            color: #dbeafe;
+            background: rgba(255,255,255,.07);
+            cursor: pointer;
+            border-radius: 999px;
+            padding: 10px 14px;
+            font-weight: 800;
+            transition: .22s ease;
+        }
+
+        .hero-toggle:hover {
+            background: rgba(125,211,252,.13);
+            border-color: rgba(125,211,252,.32);
+        }
+
+        .hero-toggle .icon {
+            display: inline-block;
+            margin-right: 6px;
+            transition: transform .25s ease;
+        }
+
+        .hero-toggle.collapsed .icon {
+            transform: rotate(180deg);
+        }
+
+        .hero.collapsed {
+            display: none;
+        }
+        
         .hero { display: grid; grid-template-columns: minmax(0, 1.2fr) 420px; gap: 24px; padding: 44px 0 26px; }
         .glass {
             border: 1px solid var(--line);
@@ -182,6 +212,9 @@
             .groups { grid-template-columns: 1fr; }
             .toolbar { flex-direction: column; align-items: stretch; }
             .search { min-width: 0; width: 100%; }
+            .hero-toggle {
+                width: 100%;
+            }
         }
     </style>
 </head>
@@ -193,9 +226,13 @@
             <button class="tab active" data-section="dashboard">Faza grupowa</button>
             <button class="tab" data-section="knockout">Drabinka pucharowa</button>
         </div>
+        <button id="heroToggle" class="hero-toggle" type="button" aria-controls="hero" aria-expanded="true">
+            <span class="icon">⌃</span>
+            <span class="label">Ukryj intro</span>
+        </button>
     </nav>
 
-    <section class="hero">
+    <section id="hero" class="hero">
         <div class="hero-card glass">
             <div class="eyebrow">Kanada · Meksyk · Stany Zjednoczone</div>
             <h1>Centrum dowodzenia Mundialu 2026.</h1>
@@ -299,6 +336,28 @@
       `).join('');
     }
 
+    const HERO_STORAGE_KEY = 'mundial-2026:hero-collapsed';
+
+    function setHeroCollapsed(collapsed) {
+        const hero = document.getElementById('hero');
+        const toggle = document.getElementById('heroToggle');
+        const label = toggle.querySelector('.label');
+
+        hero.classList.toggle('collapsed', collapsed);
+        toggle.classList.toggle('collapsed', collapsed);
+        toggle.setAttribute('aria-expanded', String(!collapsed));
+        label.textContent = collapsed ? 'Pokaż intro' : 'Ukryj intro';
+
+        localStorage.setItem(HERO_STORAGE_KEY, collapsed ? 'true' : 'false');
+    }
+
+    setHeroCollapsed(localStorage.getItem(HERO_STORAGE_KEY) === 'true');
+
+    document.getElementById('heroToggle').addEventListener('click', () => {
+        const isCollapsed = document.getElementById('hero').classList.contains('collapsed');
+        setHeroCollapsed(!isCollapsed);
+    });
+    
     document.querySelectorAll('.tab').forEach(button => {
         button.addEventListener('click', () => {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
