@@ -1,9 +1,23 @@
 <main class="app-shell">
   <nav class="nav glass">
-    <div class="brand"><div class="orb"></div><span>Mundial 2026</span></div>
+    <div class="brand"><div class="orb" aria-hidden="true"></div><span>Mundial 2026</span></div>
     <div class="tabs" role="tablist" aria-label="Dashboard sections">
-      <button class="tab" [class.active]="activeView() === 'groups'" (click)="setView('groups')">Group dashboard</button>
-      <button class="tab" [class.active]="activeView() === 'knockout'" (click)="setView('knockout')">Elimination ladder</button>
+      <button
+        class="tab"
+        type="button"
+        role="tab"
+        [class.active]="activeView() === 'groups'"
+        [attr.aria-selected]="activeView() === 'groups'"
+        (click)="setView('groups')"
+      >Group dashboard</button>
+      <button
+        class="tab"
+        type="button"
+        role="tab"
+        [class.active]="activeView() === 'knockout'"
+        [attr.aria-selected]="activeView() === 'knockout'"
+        (click)="setView('knockout')"
+      >Elimination ladder</button>
     </div>
   </nav>
 
@@ -13,7 +27,7 @@
       <h1>World Cup 2026 command center.</h1>
       <p class="lead">A modern dark iOS-like SPA for the expanded Mundial: group standings, qualification signals, match cards, and a full knockout route from Round of 32 to the final.</p>
       <div class="hero-actions">
-        <span class="pill"><span class="pulse"></span> Starts June 11, 2026</span>
+        <span class="pill"><span class="pulse" aria-hidden="true"></span> Starts June 11, 2026</span>
         <span class="pill">🏆 Final · July 19</span>
         <span class="pill">📍 3 host countries</span>
       </div>
@@ -25,51 +39,374 @@
     </aside>
   </section>
 
+  <p class="reload-hint glass">Scores update on each page reload — no automatic refresh.</p>
+
   @if (activeView() === 'groups') {
     <section class="section">
       <div class="toolbar">
         <div><p class="eyebrow">Phase 01</p><h2>Group phase dashboard</h2></div>
-        <input class="search" placeholder="Search team or group…" [value]="query()" (input)="updateQuery($any($event.target).value)" />
+        <div class="refresh-bar">
+          <button
+            type="button"
+            class="section__refresh-btn"
+            (click)="liveData.refreshStandings()"
+            aria-label="Refresh group standings"
+          >
+            <span>Refresh standings</span>
+            @if (standingsRefreshing()) {
+              <span class="spinner" aria-hidden="true"></span>
+            }
+          </button>
+          <button
+            type="button"
+            class="section__refresh-btn"
+            (click)="liveData.refreshMatches()"
+            aria-label="Refresh match schedule"
+          >
+            <span>Refresh matches</span>
+            @if (matchesRefreshing()) {
+              <span class="spinner" aria-hidden="true"></span>
+            }
+          </button>
+        </div>
       </div>
-      <div class="groups-grid">
-        @for (group of filteredGroups(); track group.code; let gi = $index) {
-          <article class="group-card glass">
-            <header><h3>Group {{ group.code }}</h3><span>Top 2 + best 3rd</span></header>
-            <div class="teams">
-              @for (team of group.teams; track team.name; let ti = $index) {
-                <div class="team" [ngClass]="{ qualify: ti < 2, third: ti === 2 }">
-                  <span class="flag">{{ team.flag }}</span>
-                  <div><b>{{ team.name }}</b><small>{{ team.confederation }} · Seed {{ team.seed }}</small></div>
-                  <strong>{{ points(gi, ti) }} pts</strong>
-                </div>
+
+      @let stState = liveData.standingsState();
+      @if (stState.status === 'error') {
+        <div class="section--error glass" role="alert">
+          <strong>Couldn't load group standings.</strong>
+          <p>{{ stState.message }}</p>
+        </div>
+      } @else if (stState.status === 'idle' || (stState.status === 'loading' && !standingsRefreshing())) {
+        <div class="groups-grid section--loading" aria-live="polite">
+          @for (key of skeletonGroupCodes; track key) {
+            <article class="group-card group-card--skeleton glass" aria-hidden="true">
+              <header><span class="skel skel--title"></span></header>
+              @for (mk of skeletonMatchKeys; track mk) {
+                <div class="skel skel--row"></div>
               }
-            </div>
-            <div class="matches">
-              <div><span>{{ group.teams[0].name }} vs {{ group.teams[1].name }}</span><em>MD1</em></div>
-              <div><span>{{ group.teams[2].name }} vs {{ group.teams[3].name }}</span><em>MD1</em></div>
-              <div><span>{{ group.teams[3].name }} vs {{ group.teams[0].name }}</span><em>MD3</em></div>
-            </div>
-          </article>
-        }
-      </div>
-      <p class="note glass">Demo points are placeholders. The structure is ready for a live data service: top two from every group advance automatically, plus the eight best third-place teams.</p>
+              <div class="skel skel--row"></div>
+            </article>
+          }
+        </div>
+      } @else {
+        <div class="groups-grid" [class.section--refreshing]="standingsRefreshing()" aria-live="polite">
+          @for (group of standingsGroups(); track group.code) {
+            <article class="group-card glass">
+              <header>
+                <h3>Group {{ group.code }}</h3>
+                <span class="badge">Top 2 + best 3rd</span>
+              </header>
+              <table class="standings-table">
+                <thead>
+                  <tr>
+                    <th scope="col" class="num">#</th>
+                    <th scope="col">Team</th>
+                    <th scope="col" class="num">P</th>
+                    <th scope="col" class="num">W</th>
+                    <th scope="col" class="num">D</th>
+                    <th scope="col" class="num">L</th>
+                    <th scope="col" class="num">GF</th>
+                    <th scope="col" class="num">GA</th>
+                    <th scope="col" class="num">GD</th>
+                    <th scope="col" class="num">Pts</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (row of group.standings; track row.teamId; let idx = $index) {
+                    @let team = group.teams[idx];
+                    <tr [class.qualify]="row.position <= 2" [class.third]="row.position === 3">
+                      <td class="num"><span class="position-pill">{{ row.position }}</span></td>
+                      <td class="team-cell">
+                        <span class="flag" aria-hidden="true">{{ team?.flag }}</span>
+                        <span class="name">{{ team?.name }}</span>
+                      </td>
+                      <td class="num">{{ row.played }}</td>
+                      <td class="num">{{ row.wins }}</td>
+                      <td class="num">{{ row.draws }}</td>
+                      <td class="num">{{ row.losses }}</td>
+                      <td class="num">{{ row.goalsFor }}</td>
+                      <td class="num">{{ row.goalsAgainst }}</td>
+                      <td class="num">{{ row.goalDifference }}</td>
+                      <td class="num pts">{{ row.points }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+
+              <div class="matches">
+                @let mState = liveData.matchesState();
+                @if (mState.status === 'error') {
+                  <p class="inline-error" role="alert">Matches unavailable: {{ mState.message }}</p>
+                } @else if (mState.status === 'idle' || (mState.status === 'loading' && !matchesRefreshing())) {
+                  @for (mk of skeletonMatchKeys; track mk) {
+                    <div class="match-row match-row--skeleton" aria-hidden="true"><span class="skel skel--row"></span></div>
+                  }
+                } @else {
+                  @for (match of matchesForGroup(group.code); track match.id) {
+                    <button
+                      type="button"
+                      class="match-row"
+                      [class.match-row--scheduled]="match.status === 'scheduled'"
+                      [class.match-row--live]="match.status === 'live'"
+                      [class.match-row--finished]="match.status === 'finished'"
+                      [class.match-row--expanded]="expandedMatchId() === match.id"
+                      [attr.aria-expanded]="expandedMatchId() === match.id"
+                      [attr.aria-controls]="'timeline-' + match.id"
+                      (click)="toggleExpand(match.id)"
+                    >
+                      <span class="match-row__matchday">MD{{ match.stage.kind === 'group' ? match.stage.matchday : '' }}</span>
+                      <span class="match-row__kickoff">{{ formatKickoff(match.kickoffUtc) }}</span>
+                      <span class="match-row__side match-row__side--home">
+                        <span class="flag" aria-hidden="true">{{ match.home.team?.flag || '' }}</span>
+                        <span class="name">{{ match.home.team?.name || match.home.placeholderLabel || '—' }}</span>
+                      </span>
+                      <span class="match-row__score">
+                        @if (match.status === 'scheduled' || !match.score) {
+                          <span aria-hidden="true">– vs –</span>
+                        } @else {
+                          <span>{{ match.score.home }} – {{ match.score.away }}</span>
+                        }
+                      </span>
+                      <span class="match-row__side match-row__side--away">
+                        <span class="name">{{ match.away.team?.name || match.away.placeholderLabel || '—' }}</span>
+                        <span class="flag" aria-hidden="true">{{ match.away.team?.flag || '' }}</span>
+                      </span>
+                      @if (match.status === 'live') {
+                        <span class="live-indicator" aria-live="polite">
+                          <span class="live-dot" aria-hidden="true"></span>
+                          <span class="sr-only">Live, {{ match.home.team?.name || match.home.placeholderLabel }} {{ match.score?.home ?? 0 }} {{ match.away.team?.name || match.away.placeholderLabel }} {{ match.score?.away ?? 0 }}</span>
+                        </span>
+                      }
+                    </button>
+
+                    @if (expandedMatchId() === match.id) {
+                      <section [id]="'timeline-' + match.id" class="timeline-expander" aria-live="polite">
+                        <header class="timeline-expander__head">
+                          <h4>Match timeline</h4>
+                          <button
+                            type="button"
+                            class="section__refresh-btn"
+                            (click)="liveData.refreshTimeline(match.id)"
+                            [attr.aria-label]="'Refresh timeline for ' + (match.home.team?.name || match.home.placeholderLabel || 'match')"
+                          >
+                            <span>Refresh</span>
+                            @if (timelineRefreshing(match.id)) {
+                              <span class="spinner" aria-hidden="true"></span>
+                            }
+                          </button>
+                        </header>
+                        @let ts = timelineState(match.id);
+                        @if (ts.status === 'error') {
+                          <div class="section--error" role="alert">
+                            <p>Couldn't load timeline: {{ ts.message }}</p>
+                          </div>
+                        } @else if (ts.status === 'idle' || (ts.status === 'loading' && !timelineRefreshing(match.id))) {
+                          <div class="event-list event-list--loading">
+                            @for (tk of skeletonTimelineKeys; track tk) {
+                              <div class="event-skel" aria-hidden="true"></div>
+                            }
+                          </div>
+                        } @else if (ts.status === 'loading') {
+                          @let prevTl = previousTimeline(match.id);
+                          @if (prevTl) {
+                            <ol class="event-list">
+                              @for (event of prevTl; track event.id) {
+                                <li class="event-row" [class]="'event--' + event.type">
+                                  <span class="event-row__minute">{{ event.minute }}'</span>
+                                  <span class="event-row__icon" aria-hidden="true">{{ event.type === 'goal' ? '⚽' : event.type === 'yellow-card' ? '🟨' : event.type === 'red-card' ? '🟥' : event.type === 'substitution' ? '🔁' : event.type === 'kickoff' ? '▶' : event.type === 'half-time' ? '⏸' : event.type === 'full-time' ? '⏹' : '•' }}</span>
+                                  <span class="event-row__desc">{{ event.description }}</span>
+                                  @if (event.primaryPlayer) {
+                                    <small class="event-row__players">{{ event.primaryPlayer }}@if (event.secondaryPlayer) { · {{ event.secondaryPlayer }}}</small>
+                                  }
+                                </li>
+                              }
+                            </ol>
+                          }
+                        } @else {
+                          @if (ts.data.length === 0) {
+                            <p class="muted">{{ emptyTimelineLabel(match) }}</p>
+                          } @else {
+                            <ol class="event-list">
+                              @for (event of ts.data; track event.id) {
+                                <li class="event-row" [class]="'event--' + event.type">
+                                  <span class="event-row__minute">{{ event.minute }}'</span>
+                                  <span class="event-row__icon" aria-hidden="true">{{ event.type === 'goal' ? '⚽' : event.type === 'yellow-card' ? '🟨' : event.type === 'red-card' ? '🟥' : event.type === 'substitution' ? '🔁' : event.type === 'kickoff' ? '▶' : event.type === 'half-time' ? '⏸' : event.type === 'full-time' ? '⏹' : '•' }}</span>
+                                  <span class="event-row__desc">{{ event.description }}</span>
+                                  @if (event.primaryPlayer) {
+                                    <small class="event-row__players">{{ event.primaryPlayer }}@if (event.secondaryPlayer) { · {{ event.secondaryPlayer }}}</small>
+                                  }
+                                </li>
+                              }
+                            </ol>
+                          }
+                        }
+                      </section>
+                    }
+                  } @empty {
+                    <p class="muted">No matches scheduled.</p>
+                  }
+                }
+              </div>
+            </article>
+          }
+        </div>
+      }
     </section>
   } @else {
     <section class="section">
-      <div class="toolbar"><div><p class="eyebrow">Phase 02</p><h2>Elimination phase ladder</h2></div><span class="pill">Round of 32 → Final</span></div>
-      <div class="bracket-shell glass">
-        <div class="bracket">
-          @for (round of rounds; track round.title) {
-            <div class="round" [class]="round.className">
-              <h3>{{ round.title }}</h3>
-              @for (slot of round.slots; track slot) {
-                <div class="slot" [class.champion]="round.className === 'final'"><b>{{ slot }}</b><span>{{ round.date }}</span></div>
-              }
-            </div>
-          }
+      <div class="toolbar">
+        <div><p class="eyebrow">Phase 02</p><h2>Elimination ladder</h2></div>
+        <div class="refresh-bar">
+          <button
+            type="button"
+            class="section__refresh-btn"
+            (click)="liveData.refreshBracket()"
+            aria-label="Refresh elimination bracket"
+          >
+            <span>Refresh bracket</span>
+            @if (bracketRefreshing()) {
+              <span class="spinner" aria-hidden="true"></span>
+            }
+          </button>
         </div>
       </div>
-      <p class="note glass">Pairing labels are intentionally abstract until standings are final. The layout supports a connected bracket engine later.</p>
+
+      @let brState = liveData.bracketState();
+      @if (brState.status === 'error') {
+        <div class="section--error glass" role="alert">
+          <strong>Couldn't load knockout bracket.</strong>
+          <p>{{ brState.message }}</p>
+        </div>
+      } @else if (brState.status === 'idle' || (brState.status === 'loading' && !bracketRefreshing())) {
+        <div class="bracket-shell glass">
+          <div class="bracket bracket--loading">
+            @for (col of ['r32','r16','qf','sf','final']; track col) {
+              <div class="bracket-column">
+                <h3 class="skel skel--title"></h3>
+                @for (i of [0,1,2]; track i) {
+                  <div class="bracket-card bracket-card--skeleton" aria-hidden="true">
+                    <span class="skel skel--row"></span>
+                    <span class="skel skel--row"></span>
+                  </div>
+                }
+              </div>
+            }
+          </div>
+        </div>
+      } @else {
+        <div class="bracket-shell glass">
+          <div class="bracket" [class.bracket--refreshing]="bracketRefreshing()">
+            @for (column of bracketColumns(); track column.round) {
+              <div class="bracket-column" [attr.data-round]="column.round">
+                <h3>{{ column.label }}</h3>
+                @for (pair of column.pairs; track $index) {
+                  <article class="bracket-card">
+                    <button
+                      type="button"
+                      class="bracket-card__btn"
+                      [disabled]="!isMatchClickable(pair.match)"
+                      [class.bracket-card--expanded]="pair.match && expandedMatchId() === pair.match.id"
+                      [attr.aria-expanded]="pair.match ? expandedMatchId() === pair.match.id : null"
+                      [attr.aria-controls]="pair.match ? 'timeline-' + pair.match.id : null"
+                      (click)="pair.match && toggleExpand(pair.match.id)"
+                    >
+                      <div class="bracket-side"
+                           [class.bracket-side--placeholder]="pair.home.occupant.kind === 'placeholder'"
+                           [class.bracket-side--empty]="pair.home.occupant.kind === 'empty'">
+                        <span class="flag" aria-hidden="true">{{ occupantFlag(pair.home.occupant) }}</span>
+                        <span class="name">{{ occupantName(pair.home.occupant) || '—' }}</span>
+                        @if (pair.match?.score && pair.match?.status !== 'scheduled') {
+                          <span class="score">{{ pair.match?.score?.home }}</span>
+                        }
+                      </div>
+                      <div class="bracket-side"
+                           [class.bracket-side--placeholder]="pair.away.occupant.kind === 'placeholder'"
+                           [class.bracket-side--empty]="pair.away.occupant.kind === 'empty'">
+                        <span class="flag" aria-hidden="true">{{ occupantFlag(pair.away.occupant) }}</span>
+                        <span class="name">{{ occupantName(pair.away.occupant) || '—' }}</span>
+                        @if (pair.match?.score && pair.match?.status !== 'scheduled') {
+                          <span class="score">{{ pair.match?.score?.away }}</span>
+                        }
+                      </div>
+                      @if (pair.match) {
+                        <footer class="bracket-card__meta">
+                          <small>{{ formatBracketDate(pair.match.kickoffUtc) }}</small>
+                          <small>{{ pair.match.hostCity }}</small>
+                        </footer>
+                      }
+                    </button>
+
+                    @if (pair.match && expandedMatchId() === pair.match.id) {
+                      <section [id]="'timeline-' + pair.match.id" class="timeline-expander" aria-live="polite">
+                        @let bMatch = pair.match;
+                        <header class="timeline-expander__head">
+                          <h4>Match timeline</h4>
+                          <button
+                            type="button"
+                            class="section__refresh-btn"
+                            (click)="liveData.refreshTimeline(bMatch.id)"
+                            aria-label="Refresh match timeline"
+                          >
+                            <span>Refresh</span>
+                            @if (timelineRefreshing(bMatch.id)) {
+                              <span class="spinner" aria-hidden="true"></span>
+                            }
+                          </button>
+                        </header>
+                        @let bts = timelineState(bMatch.id);
+                        @if (bts.status === 'error') {
+                          <div class="section--error" role="alert"><p>Couldn't load timeline: {{ bts.message }}</p></div>
+                        } @else if (bts.status === 'idle' || (bts.status === 'loading' && !timelineRefreshing(bMatch.id))) {
+                          <div class="event-list event-list--loading">
+                            @for (tk of skeletonTimelineKeys; track tk) {
+                              <div class="event-skel" aria-hidden="true"></div>
+                            }
+                          </div>
+                        } @else if (bts.status === 'loading') {
+                          @let bPrev = previousTimeline(bMatch.id);
+                          @if (bPrev) {
+                            <ol class="event-list">
+                              @for (event of bPrev; track event.id) {
+                                <li class="event-row" [class]="'event--' + event.type">
+                                  <span class="event-row__minute">{{ event.minute }}'</span>
+                                  <span class="event-row__icon" aria-hidden="true">{{ event.type === 'goal' ? '⚽' : event.type === 'yellow-card' ? '🟨' : event.type === 'red-card' ? '🟥' : event.type === 'substitution' ? '🔁' : event.type === 'kickoff' ? '▶' : event.type === 'half-time' ? '⏸' : event.type === 'full-time' ? '⏹' : '•' }}</span>
+                                  <span class="event-row__desc">{{ event.description }}</span>
+                                  @if (event.primaryPlayer) {
+                                    <small class="event-row__players">{{ event.primaryPlayer }}@if (event.secondaryPlayer) { · {{ event.secondaryPlayer }}}</small>
+                                  }
+                                </li>
+                              }
+                            </ol>
+                          }
+                        } @else {
+                          @if (bts.data.length === 0) {
+                            <p class="muted">{{ emptyTimelineLabel(bMatch) }}</p>
+                          } @else {
+                            <ol class="event-list">
+                              @for (event of bts.data; track event.id) {
+                                <li class="event-row" [class]="'event--' + event.type">
+                                  <span class="event-row__minute">{{ event.minute }}'</span>
+                                  <span class="event-row__icon" aria-hidden="true">{{ event.type === 'goal' ? '⚽' : event.type === 'yellow-card' ? '🟨' : event.type === 'red-card' ? '🟥' : event.type === 'substitution' ? '🔁' : event.type === 'kickoff' ? '▶' : event.type === 'half-time' ? '⏸' : event.type === 'full-time' ? '⏹' : '•' }}</span>
+                                  <span class="event-row__desc">{{ event.description }}</span>
+                                  @if (event.primaryPlayer) {
+                                    <small class="event-row__players">{{ event.primaryPlayer }}@if (event.secondaryPlayer) { · {{ event.secondaryPlayer }}}</small>
+                                  }
+                                </li>
+                              }
+                            </ol>
+                          }
+                        }
+                      </section>
+                    }
+                  </article>
+                }
+              </div>
+            }
+          </div>
+        </div>
+      }
     </section>
   }
 </main>
+
