@@ -31,7 +31,7 @@ export interface RawScoreboardEvent {
   readonly name?: string;
   readonly shortName?: string;
   readonly status?: { readonly type?: { readonly state?: string } };
-  readonly season?: { readonly type?: number };
+  readonly season?: { readonly type?: number; readonly slug?: string };
   readonly week?: { readonly number?: number; readonly text?: string };
   readonly notes?: readonly { readonly headline?: string; readonly type?: string }[];
   readonly competitions?: readonly RawScoreboardCompetition[];
@@ -124,6 +124,8 @@ const PLACEHOLDER_NAME_PATTERNS: readonly RegExp[] = [
   /^(Winner|Runner-?up|Loser)\b/i,
   /^[1-4][A-L](\/[A-L])*$/,
   /^TBD$/i,
+  /^Group\s+[A-L]\b/i,           // "Group A 2nd Place", "Group F 1st Place"
+  /^Round\s+of\s+\d+\s+\d+\s+Winner$/i, // "Round of 32 1 Winner"
 ];
 
 function isPlaceholderName(name: string): boolean {
@@ -187,6 +189,15 @@ function parseGroupCode(event: RawScoreboardEvent): GroupCode | undefined {
 }
 
 function parseBracketRound(event: RawScoreboardEvent): BracketRound | undefined {
+  const slug = event.season?.slug;
+  if (slug) {
+    if (slug === 'round-of-32') return 'r32';
+    if (slug === 'round-of-16') return 'r16';
+    if (slug === 'quarterfinals') return 'qf';
+    if (slug === 'semi-finals' || slug === 'semifinals') return 'sf';
+    if (slug === 'final') return 'final';
+  }
+
   const headlines: string[] = [];
   for (const note of event.notes ?? []) {
     if (note?.headline) headlines.push(note.headline);
@@ -238,15 +249,15 @@ function buildMatchFromEvent(event: RawScoreboardEvent): Match | undefined {
   const home = competitors.find((c) => c?.homeAway === 'home') ?? competitors[0];
   const away = competitors.find((c) => c?.homeAway === 'away') ?? competitors[1];
 
-  const seasonType = event.season?.type;
+  const seasonSlug = event.season?.slug;
   const stage = ((): Stage | undefined => {
-    if (seasonType === 2) {
+    if (seasonSlug === 'group-stage') {
       const group = parseGroupCode(event);
       const matchday = event.week?.number;
       if (!group || (matchday !== 1 && matchday !== 2 && matchday !== 3)) return undefined;
       return { kind: 'group', group, matchday };
     }
-    if (seasonType === 3) {
+    if (seasonSlug && seasonSlug !== 'group-stage') {
       const round = parseBracketRound(event);
       if (!round) return undefined;
       return { kind: round };
@@ -371,7 +382,7 @@ export function mapScoreboardToBracket(raw: unknown): BracketSlot[] {
   for (const event of rawEvents) {
     if (!isRecord(event)) continue;
     const ev = event as unknown as RawScoreboardEvent;
-    if (ev.season?.type !== 3) continue;
+    if (!ev.season?.slug || ev.season.slug === 'group-stage') continue;
     const round = parseBracketRound(ev);
     if (!round) continue;
     const built = buildMatchFromEvent(ev);
