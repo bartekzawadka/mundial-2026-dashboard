@@ -20,6 +20,9 @@ jobs:
       contents: read
       packages: write
 
+    outputs:
+      version_tag: ${{ steps.tag.outputs.version_tag }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -67,3 +70,72 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  deploy-azure:
+    name: Deploy to Azure Container Apps
+    needs: docker-build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: production
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Verify Azure secrets are configured
+        id: precheck
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          AZURE_CONTAINER_APP: ${{ secrets.AZURE_CONTAINER_APP }}
+        run: |
+          if [ -z "$AZURE_CLIENT_ID" ] || [ -z "$AZURE_TENANT_ID" ] || [ -z "$AZURE_SUBSCRIPTION_ID" ] || [ -z "$AZURE_RESOURCE_GROUP" ] || [ -z "$AZURE_CONTAINER_APP" ]; then
+            echo "::warning::Azure secrets not fully configured on the production environment; skipping deploy."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Log in to Azure (OIDC)
+        if: steps.precheck.outputs.configured == 'true'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Update Container App image
+        if: steps.precheck.outputs.configured == 'true'
+        env:
+          VERSION_TAG: ${{ needs.docker-build.outputs.version_tag }}
+          RG: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          APP: ${{ secrets.AZURE_CONTAINER_APP }}
+        run: |
+          az containerapp update \
+            --name "$APP" \
+            --resource-group "$RG" \
+            --image "${REGISTRY}/${{ github.repository_owner }}/${IMAGE_NAME}:${VERSION_TAG}"
+
+      - name: Smoke check
+        if: steps.precheck.outputs.configured == 'true'
+        env:
+          RG: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          APP: ${{ secrets.AZURE_CONTAINER_APP }}
+        run: |
+          set -euo pipefail
+          FQDN=$(az containerapp show --name "$APP" --resource-group "$RG" --query properties.configuration.ingress.fqdn -o tsv)
+          echo "::add-mask::$FQDN"
+          URL="https://${FQDN}/"
+          for i in 1 2 3 4 5; do
+            if curl -fsS "$URL" -o /dev/null; then
+              echo "Smoke check OK"
+              exit 0
+            fi
+            echo "Attempt $i failed, retrying in 10s..."
+            sleep 10
+          done
+          echo "Smoke check failed after 5 attempts"
+          exit 1
